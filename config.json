@@ -1,0 +1,10 @@
+{
+  "owner": "LasVegas98",
+  "repository": "LasVegas98/portfolio-status",
+  "checks": [
+    {"url": "https://giorgio-nanni.vercel.app/", "contains": "Giorgio Junior Nanni"},
+    {"url": "https://giorgio-nanni.vercel.app/style.css", "contains": ".introduction-grid"},
+    {"url": "https://giorgio-nanni.vercel.app/assets/portraits/giorgio-junior-nanni.png", "method": "HEAD"},
+    {"url": "https://flyhigh-co-portfolio.flashypiano2.chatgpt.site/", "contains": "FlyHighCo"}
+  ]
+}

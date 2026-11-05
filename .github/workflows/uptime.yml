@@ -1,0 +1,47 @@
+name: Portfolio link check
+on:
+  schedule:
+    - cron: '3-58/5 * * * *'
+  push:
+    branches: [main]
+    paths: ['monitor.py', 'config.json', '.github/workflows/uptime.yml']
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: 'Send and close one owner notification test; does not simulate an outage'
+        type: boolean
+        default: false
+permissions:
+  contents: write
+  issues: write
+concurrency:
+  group: portfolio-monitor
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Check portfolio and notify owner
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TEST_ALERT: ${{ inputs.test_alert }}
+        run: |
+          if [ "$TEST_ALERT" = "true" ]; then
+            python3 monitor.py --test-alert
+          else
+            python3 monitor.py --notify
+          fi
+      - name: Save daily status
+        if: always()
+        run: |
+          if [ -f status.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add status.json
+            if ! git diff --cached --quiet; then
+              git commit -m "Record portfolio status"
+              git push
+            fi
+          fi

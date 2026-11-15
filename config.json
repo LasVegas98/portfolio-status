@@ -2,6 +2,7 @@
   "owner": "LasVegas98",
   "repository": "LasVegas98/portfolio-status",
   "checks": [
+    {"url": "https://gio-life-plan.vercel.app/", "expected_status": 401, "headers_contain": {"WWW-Authenticate": "Basic"}},
     {"url": "https://life-plan-brown.vercel.app/healthz", "contains": "\"status\": \"ok\""},
     {"url": "https://life-plan-brown.vercel.app/", "expected_status": 401, "headers_contain": {"WWW-Authenticate": "Basic"}},
     {"url": "https://flyhigh-studio.vercel.app/", "contains": "FlyHigh"},

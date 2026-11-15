@@ -2,6 +2,9 @@
   "owner": "LasVegas98",
   "repository": "LasVegas98/portfolio-status",
   "checks": [
+    {"url": "https://life-plan-brown.vercel.app/healthz", "contains": "\"status\": \"ok\""},
+    {"url": "https://life-plan-brown.vercel.app/", "expected_status": 401, "headers_contain": {"WWW-Authenticate": "Basic"}},
+    {"url": "https://flyhigh-studio.vercel.app/", "contains": "FlyHigh"},
     {"url": "https://giorgio-nanni.vercel.app/", "contains": "Giorgio Junior Nanni"},
     {"url": "https://giorgio-nanni.vercel.app/style.css", "contains": ".introduction-grid"},
     {"url": "https://giorgio-nanni.vercel.app/assets/portraits/giorgio-junior-nanni.png", "method": "HEAD"},

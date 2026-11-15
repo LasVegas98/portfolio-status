@@ -1,4 +1,4 @@
-"""Check public CV destinations; notify the owner only on an outage/recovery.
+"""Check hosted project entry points; notify the owner on outage/recovery.
 
 The published monitor mirror contains this script, public URLs and status only.
 GitHub supplies its short-lived token. No app/database/provider secrets needed.
@@ -15,7 +15,8 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent
 MARKER = '<!-- life-plan-portfolio-monitor -->'
-TITLE = 'Portfolio link needs attention'
+TITLE = 'Live project link needs attention'
+LEGACY_TITLE = 'Portfolio link needs attention'
 
 
 def probe(check):
@@ -25,13 +26,24 @@ def probe(check):
         raise ValueError('Monitor targets must be public HTTPS addresses.')
     request = Request(url, method=check.get('method', 'GET'),
                       headers={'User-Agent': 'LifePlan-Portfolio-Link-Check/1.0'})
-    with urlopen(request, timeout=15) as response:
-        if response.status != 200:
+    expected_status = check.get('expected_status', 200)
+    try:
+        response = urlopen(request, timeout=30)
+    except HTTPError as error:
+        if error.code != expected_status:
+            error.close()
+            raise
+        response = error
+    with response:
+        if response.status != expected_status:
             raise ValueError('HTTP ' + str(response.status))
+        for name, expected in check.get('headers_contain', {}).items():
+            if expected not in response.headers.get(name, ''):
+                raise ValueError('Expected access-control header missing: ' + name)
         if check.get('contains'):
             content = response.read(2_000_001)
             if len(content) > 2_000_000 or check['contains'] not in content.decode('utf-8', errors='replace'):
-                raise ValueError('Expected portfolio content missing.')
+                raise ValueError('Expected project content missing.')
 
 
 def api(method, route, token, payload=None):
@@ -54,27 +66,27 @@ def notify(config, failures, token, *, test=False):
     route = '/repos/' + repository
     if test:
         issue = api('POST', route + '/issues', token, {
-            'title': 'Portfolio monitor test — no outage',
-            'body': MARKER + '\nA one-off owner-requested test. The public portfolio is healthy. Monitoring can create an assigned alert.',
+            'title': 'Live project monitor test - no outage',
+            'body': MARKER + '\nA one-off owner-requested test. The configured checks are healthy. Monitoring can create an assigned alert.',
             'assignees': [config['owner']],
         })
         api('PATCH', route + '/issues/' + str(issue['number']), token, {'state': 'closed'})
         print('Owner alert test created and closed: ' + issue['html_url'])
         return
     issues = api('GET', route + '/issues?state=open&per_page=100', token)
-    existing = next((item for item in issues if item.get('title') == TITLE
+    existing = next((item for item in issues if item.get('title') in (TITLE, LEGACY_TITLE)
                      and MARKER in (item.get('body') or '')), None)
     if failures and not existing:
         details = '\n'.join('- ' + item['url'] + ': ' + item['error'] for item in failures)
         issue = api('POST', route + '/issues', token, {
-            'title': TITLE, 'body': MARKER + '\nA public CV link failed repeated checks:\n\n' + details,
+            'title': TITLE, 'body': MARKER + '\nA hosted project check failed repeated checks:\n\n' + details,
             'assignees': [config['owner']],
         })
         print('Owner outage alert: ' + issue['html_url'])
     elif not failures and existing:
         number = str(existing['number'])
         api('POST', route + '/issues/' + number + '/comments', token,
-            {'body': 'Recovered: every configured public portfolio check now passes.'})
+            {'body': 'Recovered: every configured hosted project check now passes.'})
         api('PATCH', route + '/issues/' + number, token, {'state': 'closed'})
         print('Recovery recorded for issue ' + number)
 

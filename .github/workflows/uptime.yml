@@ -26,7 +26,7 @@ jobs:
       - name: Check portfolio and notify owner
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          TEST_ALERT: ${{ inputs.test_alert }}
+          TEST_ALERT: ${{ inputs.test_alert || (github.event_name == 'push' && contains(github.event.head_commit.message, '[monitor-alert-test]')) }}
         run: |
           if [ "$TEST_ALERT" = "true" ]; then
             python3 monitor.py --test-alert

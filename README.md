@@ -1,17 +1,27 @@
 # Hosted project link status
 
 Checks Life Plan health and its private login boundary, FlyHigh, the public
-portfolio, key assets and legacy PDF link every five minutes through
-GitHub Actions. A repeated failure opens one issue assigned to LasVegas98;
+portfolio, key assets and legacy PDF link on a requested five-minute GitHub
+Actions schedule. Observed scheduled runs can be hours apart; this is not a
+five-minute availability guarantee. A repeated failure opens one issue assigned to LasVegas98;
 recovery closes it. Repository watching and GitHub notification preferences
 determine web/email delivery. Scheduling can be delayed: this is not an instant
 or guaranteed uptime service. A manual test-alert dispatch verifies issue delivery.
+If a different target fails during the same incident, its details are updated
+without opening another incident. Checks run in four parallel workers so slow
+targets do not hold up every other target sequentially. Probe status is saved
+before incident delivery; logs report alertError separately from website status.
 
 Life Plan checks use no credentials: /healthz must return its health response,
 while / must return the application's Basic authentication challenge. This does
 not prove authenticated saves, database recovery or PDF generation. Monitor
 failures identify the specific URL. ChatGPT also has an hourly condition watch
-for outages and a monitor that has not run for over two hours; mobile push/email
+for outages and a monitor that has not run for over two hours. The watch is
+authorized to re-run only the existing normal health-check job when it is over
+an hour old, avoiding duplicate in-flight runs and owner test-alert runs.
+Freshness comes from the latest job attempt's completed_at, not the workflow's
+original created_at. Public GitHub runners are used, with no paid service.
+Mobile push/email
 delivery still depends on account and device notification settings.
 
 Only public addresses, this checker and a daily status record are mirrored here.

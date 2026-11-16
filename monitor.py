@@ -4,6 +4,7 @@ The published monitor mirror contains this script, public URLs and status only.
 GitHub supplies its short-lived token. No app/database/provider secrets needed.
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import json
 import os
@@ -17,6 +18,24 @@ ROOT = Path(__file__).resolve().parent
 MARKER = '<!-- life-plan-portfolio-monitor -->'
 TITLE = 'Live project link needs attention'
 LEGACY_TITLE = 'Portfolio link needs attention'
+
+
+def run_checks(checks):
+    """Bound slow-network retries while retaining configuration order."""
+    def check_one(check):
+        for attempt in range(3):
+            try:
+                probe(check)
+                return None
+            except (HTTPError, URLError, OSError, ValueError) as error:
+                if attempt < 2:
+                    time.sleep(3)
+                else:
+                    return {'url': check['url'], 'error': str(error)[:200]}
+    # Eight fully timing-out checks finish in two batches (about 192 seconds),
+    # leaving time for incident handling inside the five-minute workflow.
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        return [failure for failure in executor.map(check_one, checks) if failure]
 
 
 def probe(check):
@@ -61,7 +80,7 @@ def api(method, route, token, payload=None):
 
 def notify(config, failures, token, *, test=False):
     repository = config['repository']
-    if repository != 'LasVegas98/portfolio-status':
+    if repository != 'LasVegas98/portfolio-status' or config.get('owner') != 'LasVegas98':
         raise ValueError('Unexpected alert repository.')
     route = '/repos/' + repository
     if test:
@@ -76,13 +95,20 @@ def notify(config, failures, token, *, test=False):
     issues = api('GET', route + '/issues?state=open&per_page=100', token)
     existing = next((item for item in issues if item.get('title') in (TITLE, LEGACY_TITLE)
                      and MARKER in (item.get('body') or '')), None)
-    if failures and not existing:
+    if failures:
         details = '\n'.join('- ' + item['url'] + ': ' + item['error'] for item in failures)
-        issue = api('POST', route + '/issues', token, {
-            'title': TITLE, 'body': MARKER + '\nA hosted project check failed repeated checks:\n\n' + details,
-            'assignees': [config['owner']],
-        })
-        print('Owner outage alert: ' + issue['html_url'])
+        body = MARKER + '\nA hosted project check failed repeated checks:\n\n' + details
+        if not existing:
+            issue = api('POST', route + '/issues', token, {
+                'title': TITLE, 'body': body, 'assignees': [config['owner']],
+            })
+            print('Owner outage alert: ' + issue['html_url'])
+        elif existing.get('body') != body:
+            number = str(existing['number'])
+            api('PATCH', route + '/issues/' + number, token, {'title': TITLE, 'body': body})
+            api('POST', route + '/issues/' + number + '/comments', token,
+                {'body': 'The failing project checks have changed:\n\n' + details})
+            print('Updated owner incident ' + number)
     elif not failures and existing:
         number = str(existing['number'])
         api('POST', route + '/issues/' + number + '/comments', token,
@@ -97,31 +123,30 @@ def main():
     parser.add_argument('--test-alert', action='store_true')
     args = parser.parse_args()
     config = json.loads((ROOT / 'config.json').read_text(encoding='utf-8'))
-    failures = []
-    for check in config['checks']:
-        for attempt in range(3):
-            try:
-                probe(check)
-                break
-            except (HTTPError, URLError, OSError, ValueError) as error:
-                if attempt < 2:
-                    time.sleep(3)
-                else:
-                    failures.append({'url': check['url'], 'error': str(error)[:200]})
+    failures = run_checks(config['checks'])
+    # Daily status also keeps the public mirror active without a commit for
+    # every probe. Exact completion timestamps are recorded in workflow logs.
+    # Save probe truth before alert delivery, so a provider failure cannot hide
+    # the actual site result or leave a stale healthy status behind.
+    status = {'checkedDate': datetime.now(timezone.utc).date().isoformat(),
+              'status': 'down' if failures else 'up', 'failures': failures}
+    (ROOT / 'status.json').write_text(json.dumps(status, indent=2) + '\n', encoding='utf-8')
     if args.test_alert and failures:
         raise SystemExit('Test alert requires healthy targets; actual checks failed.')
+    alert_error = False
     if args.notify or args.test_alert:
         token = os.environ.get('GITHUB_TOKEN')
         if not token:
             raise SystemExit('GitHub alert token is unavailable.')
-        notify(config, failures, token, test=args.test_alert)
-    # Daily status is useful history and regular repository activity; avoids
-    # GitHub's automatic schedule disable after 60 days without activity.
-    status = {'checkedDate': datetime.now(timezone.utc).date().isoformat(),
-              'status': 'down' if failures else 'up', 'failures': failures}
-    (ROOT / 'status.json').write_text(json.dumps(status, indent=2) + '\n', encoding='utf-8')
-    print(json.dumps({'status': status['status'], 'checks': len(config['checks']), 'failures': failures}))
-    return 1 if failures else 0
+        try:
+            notify(config, failures, token, test=args.test_alert)
+        except (HTTPError, URLError, OSError, ValueError):
+            # Do not include provider responses or credentials in public output.
+            alert_error = True
+    print(json.dumps({'checkedAt': datetime.now(timezone.utc).isoformat(),
+                      'status': status['status'], 'checks': len(config['checks']),
+                      'failures': failures, 'alertError': alert_error}))
+    return 1 if failures or alert_error else 0
 
 
 if __name__ == '__main__':
